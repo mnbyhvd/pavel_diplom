@@ -1,0 +1,91 @@
+services:
+
+  # ── PostgreSQL ─────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: wavemap_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB:       wavemap
+      POSTGRES_USER:     wavemap
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-wavemap_secret}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - wavemap_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U wavemap -d wavemap"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  # ── FastAPI backend ────────────────────────────────────────────
+  app:
+    build: .
+    container_name: wavemap_app
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # postgresql:// format — database.py converts to asyncpg:// automatically
+      DATABASE_URL:           postgresql://wavemap:${POSTGRES_PASSWORD:-wavemap_secret}@postgres:5432/wavemap
+      SPOTIFY_CLIENT_ID:      ${SPOTIFY_CLIENT_ID}
+      SPOTIFY_CLIENT_SECRET:  ${SPOTIFY_CLIENT_SECRET}
+      SPOTIFY_REDIRECT_URI:   ${SPOTIFY_REDIRECT_URI}
+    volumes:
+      # Mount data dir so CSV is accessible for initial import
+      - ./data:/app/data
+    expose:
+      - "8000"
+    networks:
+      - wavemap_net
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/stats')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
+
+  # ── Nginx reverse proxy + SSL ──────────────────────────────────
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: wavemap_nginx
+    restart: unless-stopped
+    depends_on:
+      - app
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./nginx/certbot/conf:/etc/letsencrypt:ro
+      - ./nginx/certbot/www:/var/www/certbot:ro
+    networks:
+      - wavemap_net
+
+  # ── Certbot (Let's Encrypt auto-renewal) ──────────────────────
+  certbot:
+    image: certbot/certbot:latest
+    container_name: wavemap_certbot
+    volumes:
+      - ./nginx/certbot/conf:/etc/letsencrypt
+      - ./nginx/certbot/www:/var/www/certbot
+    # Renew every 12 h — certbot skips if cert is still valid (> 30 days left)
+    entrypoint: >
+      /bin/sh -c "trap exit TERM;
+      while :; do
+        certbot renew --quiet --webroot --webroot-path=/var/www/certbot;
+        sleep 12h & wait $${!};
+      done"
+    networks:
+      - wavemap_net
+
+volumes:
+  postgres_data:
+
+networks:
+  wavemap_net:
+    driver: bridge

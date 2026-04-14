@@ -1,0 +1,17 @@
+# This temporary config is used ONLY during initial SSL certificate issuance.
+# The real config (wavemap.conf) takes over after the cert is obtained.
+# Do NOT use this file directly — it's managed by deploy.sh
+
+server {
+    listen 80;
+    server_name YOUR_DOMAIN.com www.YOUR_DOMAIN.com;
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    location / {
+        return 200 'WAVEMAP — SSL setup in progress';
+        add_header Content-Type text/plain;
+    }
+}

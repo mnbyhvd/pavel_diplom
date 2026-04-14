@@ -1,0 +1,72 @@
+# ── Python ────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+*.pyc
+
+# ── Virtual environment ───────────────────────────────────
+venv/
+.venv/
+env/
+ENV/
+
+# ── Environment / secrets ─────────────────────────────────
+.env
+.env.local
+.env.*.local
+*.secret
+secrets.json
+
+# ── Data files (large CSVs — not in repo) ─────────────────
+data/*.csv
+data/*.parquet
+data/*.feather
+data/*.db
+# Keep the data directory itself
+!data/.gitkeep
+
+# ── SSL certificates (generated on server) ────────────────
+nginx/certbot/
+nginx/conf.d/*.bak
+nginx/conf.d/bootstrap.conf
+nginx/conf.d/wavemap_bootstrap.conf
+
+# ── Database backups ──────────────────────────────────────
+*.sql
+*.dump
+
+# ── Docker ────────────────────────────────────────────────
+# (docker-compose.yml is committed)
+
+# ── OS ────────────────────────────────────────────────────
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+desktop.ini
+
+# ── IDE ───────────────────────────────────────────────────
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# ── Logs ──────────────────────────────────────────────────
+*.log
+logs/
+
+# ── Pytest / coverage ─────────────────────────────────────
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/

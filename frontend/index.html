@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>WAVEMAP</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;1,9..40,300&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+  <script src="https://sdk.scdn.co/spotify-player.js"></script>
+</head>
+<body>
+
+<!-- Ambient background -->
+<div class="ambient-bg" id="ambientBg">
+  <div class="ambient-orb orb-1"></div>
+  <div class="ambient-orb orb-2"></div>
+  <div class="ambient-orb orb-3"></div>
+</div>
+
+<!-- ══════════════════ SIDEBAR ══════════════════ -->
+<aside id="sidebar">
+  <a class="sidebar-logo" href="#home">
+    <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+      <rect x="2" y="14" width="4" height="12" rx="2" fill="currentColor"/>
+      <rect x="8" y="8" width="4" height="18" rx="2" fill="currentColor" opacity=".7"/>
+      <rect x="14" y="4" width="4" height="22" rx="2" fill="currentColor"/>
+      <rect x="20" y="10" width="4" height="16" rx="2" fill="currentColor" opacity=".7"/>
+    </svg>
+    <span>WAVEMAP</span>
+  </a>
+
+  <nav class="sidebar-nav">
+    <a href="#home"      class="nav-link" data-page="home">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+      Главная
+    </a>
+    <a href="#search"    class="nav-link" data-page="search">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      Поиск
+    </a>
+    <a href="#discover"  class="nav-link" data-page="discover">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/></svg>
+      Настроение
+    </a>
+    <a href="#algorithm" class="nav-link" data-page="algorithm">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+      Алгоритм
+    </a>
+  </nav>
+
+  <div class="sidebar-sep">
+    <span>Жанры</span>
+  </div>
+  <div id="sidebar-genres" class="sidebar-genres"></div>
+
+  <div class="sidebar-auth" id="sidebarAuth">
+    <button class="btn-spotify-login" id="spotifyLoginBtn">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.601.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.419 1.56-.299.421-1.02.599-1.559.3z"/></svg>
+      Войти через Spotify
+    </button>
+    <div class="user-profile hidden" id="userProfile">
+      <img id="userAvatar" src="" alt="" />
+      <div class="user-info">
+        <span id="userName"></span>
+        <span id="userPlan" class="user-plan"></span>
+      </div>
+      <button class="btn-logout" id="logoutBtn" title="Выйти">↩</button>
+    </div>
+  </div>
+</aside>
+
+<!-- ══════════════════ MAIN ══════════════════ -->
+<div id="main-wrapper">
+  <div id="main-content">
+
+    <!-- HOME -->
+    <div id="page-home" class="page hidden">
+      <div class="hero">
+        <div class="hero-eq" aria-hidden="true">
+          <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+          <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+          <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+        </div>
+        <div class="hero-eyebrow">Content-based · Weighted KNN · 8 Audio Features</div>
+        <h1 class="hero-title">Музыка<br/><em>по настроению</em></h1>
+        <p class="hero-sub">89 740 треков. Рекомендации в 8-мерном пространстве аудио-признаков Spotify.</p>
+        <div class="hero-chips">
+          <span class="chip chip-v">Valence</span>
+          <span class="chip-arrow">+</span>
+          <span class="chip chip-e">Energy</span>
+          <span class="chip-arrow">+</span>
+          <span class="chip chip-d">6 more</span>
+          <span class="chip-arrow">=</span>
+          <span class="chip chip-r">Рекомендация</span>
+        </div>
+      </div>
+
+      <section class="home-sec">
+        <div class="sec-head"><h2>Популярное</h2></div>
+        <div id="featured-row" class="scroll-row"></div>
+      </section>
+
+      <section class="home-sec">
+        <div class="sec-head"><h2>Жанры</h2></div>
+        <div id="genre-grid" class="genre-grid"></div>
+      </section>
+
+      <section class="home-sec">
+        <div class="sec-head">
+          <h2>Рекомендуем</h2>
+          <span class="sec-meta" id="mood-label"></span>
+        </div>
+        <div id="mood-picks" class="track-list numbered"></div>
+      </section>
+    </div>
+
+    <!-- SEARCH -->
+    <div id="page-search" class="page hidden">
+      <div class="search-hero">
+        <h1>Поиск</h1>
+        <div class="search-field">
+          <svg class="search-ico" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input id="search-input" type="text" placeholder="Исполнитель, название…" autocomplete="off" spellcheck="false" />
+          <kbd class="search-shortcut">⌘K</kbd>
+        </div>
+      </div>
+      <div id="search-results" class="track-list numbered">
+        <p class="empty-hint">Начните вводить — поиск в реальном времени</p>
+      </div>
+    </div>
+
+    <!-- DISCOVER -->
+    <div id="page-discover" class="page hidden">
+      <div class="page-header">
+        <h1>Карта настроений</h1>
+        <p class="page-desc">89 740 треков в пространстве аудио-признаков. Кликните на карту, выберите трек или задайте координаты настроения. Алгоритм использует <strong>8 признаков</strong> — визуализируйте любые два.</p>
+      </div>
+
+      <div class="discover-grid">
+        <div class="chart-panel glass-panel">
+          <div class="disc-axis-row">
+            <div class="disc-axis-group">
+              <span class="disc-axis-lbl">Ось X</span>
+              <select id="discAxisX" class="axis-select"></select>
+            </div>
+            <div class="disc-axis-group">
+              <span class="disc-axis-lbl">Ось Y</span>
+              <select id="discAxisY" class="axis-select"></select>
+            </div>
+          </div>
+          <div class="canvas-wrap" id="chartWrap">
+            <canvas id="moodChart"></canvas>
+            <div id="chartTooltip" class="ctip hidden"></div>
+          </div>
+          <div class="axis-labels-row">
+            <span id="discAxisXLabel" class="axis-bottom">Valence →</span>
+            <span id="discAxisYLabel" class="axis-side">↑ Energy</span>
+          </div>
+          <div class="sliders-row">
+            <div class="slider-group">
+              <label>
+                <span class="sl-name">Valence</span>
+                <input type="range" id="valSlider" min="0" max="1" step="0.01" value="0.5" />
+                <span class="sl-val" id="valVal">0.50</span>
+              </label>
+              <label>
+                <span class="sl-name">Energy</span>
+                <input type="range" id="engSlider" min="0" max="1" step="0.01" value="0.5" />
+                <span class="sl-val" id="engVal">0.50</span>
+              </label>
+            </div>
+            <button id="moodBtn" class="btn-primary">Найти</button>
+          </div>
+        </div>
+
+        <div class="disc-results glass-panel">
+          <h3 id="discTitle">Результаты</h3>
+          <div id="discList" class="track-list">
+            <p class="empty-hint">Выберите точку на карте</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ALGORITHM -->
+    <div id="page-algorithm" class="page hidden">
+      <div class="page-header">
+        <h1>Алгоритм рекомендаций</h1>
+        <p class="page-desc">Content-based KNN в 8-мерном пространстве аудио-признаков Spotify. Взвешенное евклидово расстояние — пошаговая визуализация.</p>
+      </div>
+
+      <!-- Feature cards — always visible -->
+      <section class="feat-cards-section">
+        <div class="feat-section-header">
+          <h2>Пространство признаков</h2>
+          <p class="feat-section-sub">Каждый трек — вектор в ℝ⁸. Чем ближе два вектора, тем похожее треки.</p>
+        </div>
+        <div id="featureCardsGrid" class="feature-cards-grid"></div>
+      </section>
+
+      <!-- Search -->
+      <section class="algo-search-section">
+        <h2>Выберите трек для анализа</h2>
+        <div class="algo-search-wrap">
+          <svg class="algo-search-ico" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input id="algoInput" type="text" placeholder="Название трека или исполнитель…" autocomplete="off" />
+          <div id="algoDropdown" class="algo-dropdown hidden"></div>
+        </div>
+      </section>
+
+      <div id="algoContent" class="algo-steps hidden">
+
+        <!-- Step 1: Feature vector -->
+        <div class="algo-step">
+          <div class="step-num"><span>01</span></div>
+          <div class="step-card glass-panel">
+            <h3>Вектор признаков трека</h3>
+            <p class="step-note">8 аудио-характеристик образуют точку в многомерном пространстве. Это вход алгоритма.</p>
+            <div id="algoQueryCard" class="query-card"></div>
+            <div class="algo-step1-layout">
+              <div id="algoFeatureBars" class="feature-bars algo-feat-bars"></div>
+              <div class="algo-radar-wrap">
+                <canvas id="algoRadarChart"></canvas>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Step 2: Normalization -->
+        <div class="algo-step">
+          <div class="step-num"><span>02</span></div>
+          <div class="step-card glass-panel">
+            <h3>Z-score нормализация признаков</h3>
+            <div class="formula-row">
+              <div class="formula-chip"><code>z = (x − μ) / σ</code></div>
+              <div class="formula-chip formula-chip-b"><code>d = √( Σ wᵢ · (zᵢ(a) − zᵢ(b))² )</code></div>
+            </div>
+            <p class="step-note">Приводим все признаки к единой шкале (среднее=0, σ=1), затем умножаем на √wᵢ — вес признака. Это превращает стандартное евклидово расстояние во взвешенное.</p>
+            <div id="algoNormTable" class="norm-table-wrap"></div>
+          </div>
+        </div>
+
+        <!-- Step 3: Feature space scatter -->
+        <div class="algo-step">
+          <div class="step-num"><span>03</span></div>
+          <div class="step-card glass-panel">
+            <h3>Пространство признаков — 2D проекция</h3>
+            <p class="step-note">Алгоритм работает в 8D — выберите любые 2 оси для визуализации. Жёлтая точка — ваш трек, голубые — соседи.</p>
+            <div class="algo-axis-selectors">
+              <div class="algo-axis-group">
+                <label class="algo-axis-lbl">Ось X</label>
+                <select id="algoAxisX" class="axis-select"></select>
+              </div>
+              <div class="algo-axis-group">
+                <label class="algo-axis-lbl">Ось Y</label>
+                <select id="algoAxisY" class="axis-select"></select>
+              </div>
+            </div>
+            <div class="algo-scatter-wrap">
+              <canvas id="algoScatterChart"></canvas>
+              <div id="algoScatterTip" class="ctip hidden"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Step 4: Per-feature distance breakdown -->
+        <div class="algo-step">
+          <div class="step-num"><span>04</span></div>
+          <div class="step-card glass-panel">
+            <h3>Вклад признаков в расстояние</h3>
+            <p class="step-note">Для каждого рекомендованного трека — доля каждого признака в суммарном квадрате расстояния. Помогает понять, <em>почему</em> треки похожи.</p>
+            <div class="algo-chart-box algo-chart-box-lg">
+              <canvas id="algoBarChart"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <!-- Step 5: KNN results -->
+        <div class="algo-step">
+          <div class="step-num"><span>05</span></div>
+          <div class="step-card glass-panel">
+            <h3>K ближайших соседей — результат</h3>
+            <p class="step-note">Отсортированы по взвешенному расстоянию. Меньше = ближе = похожее.</p>
+            <div id="algoRecsList" class="track-list"></div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- GENRE -->
+    <div id="page-genre" class="page hidden">
+      <div class="genre-hero" id="genreHero">
+        <div class="genre-hero-bg" id="genreHeroBg"></div>
+        <div class="genre-hero-content">
+          <p class="genre-sub">Жанр</p>
+          <h1 id="genreTitle"></h1>
+          <p id="genreCount" class="genre-count"></p>
+        </div>
+      </div>
+      <div id="genreTrackList" class="track-list numbered"></div>
+      <div id="genreLoadMore" class="load-more hidden">
+        <button id="genreLoadBtn" class="btn-outline">Загрузить ещё</button>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ══════════════════ PLAYER ══════════════════ -->
+<div id="player-bar">
+  <div class="pl-info">
+    <div class="pl-art-wrap" id="plArtWrap">
+      <img id="plArt" src="" alt="" />
+      <div class="pl-art-ph"><svg width="20" height="20" viewBox="0 0 28 28" fill="none"><rect x="2" y="14" width="4" height="12" rx="2" fill="currentColor"/><rect x="8" y="8" width="4" height="18" rx="2" fill="currentColor" opacity=".6"/><rect x="14" y="4" width="4" height="22" rx="2" fill="currentColor"/><rect x="20" y="10" width="4" height="16" rx="2" fill="currentColor" opacity=".6"/></svg></div>
+    </div>
+    <div class="pl-meta">
+      <div id="plTitle" class="pl-title">—</div>
+      <div id="plArtist" class="pl-artist"></div>
+    </div>
+    <a id="plSpotify" href="#" target="_blank" class="pl-ext hidden" title="Открыть в Spotify">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.601.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.419 1.56-.299.421-1.02.599-1.559.3z"/></svg>
+    </a>
+  </div>
+
+  <div class="pl-center">
+    <div class="pl-controls">
+      <button id="btnPrev" class="ctrl">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><polygon points="19 20 9 12 19 4 19 20"/><line x1="5" y1="19" x2="5" y2="5" stroke="currentColor" stroke-width="2"/></svg>
+      </button>
+      <button id="btnPlay" class="ctrl ctrl-play">
+        <svg id="iconPlay" width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+        <svg id="iconPause" width="18" height="18" viewBox="0 0 24 24" fill="currentColor" class="hidden"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+      </button>
+      <button id="btnNext" class="ctrl">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19" stroke="currentColor" stroke-width="2"/></svg>
+      </button>
+    </div>
+    <div class="pl-progress-row">
+      <span id="timeCur" class="t-lbl">0:00</span>
+      <div class="progress-track" id="progressTrack">
+        <div class="progress-fill" id="progressFill"></div>
+        <input type="range" id="progressBar" value="0" min="0" max="100" step="0.1" />
+      </div>
+      <span id="timeTot" class="t-lbl">—</span>
+    </div>
+    <div id="playbackBadge" class="playback-badge hidden">
+      <span id="badgeText">preview · 30s</span>
+    </div>
+  </div>
+
+  <div class="pl-right">
+    <!-- Visualizer -->
+    <div class="visualizer" id="visualizer">
+      <span></span><span></span><span></span><span></span><span></span>
+    </div>
+    <div class="vol-wrap">
+      <button id="volBtn" class="ctrl-sm">
+        <svg id="volIconHigh" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+        <svg id="volIconMute" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="hidden"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>
+      </button>
+      <input type="range" id="volBar" value="70" min="0" max="100" class="vol-slider" />
+    </div>
+    <button id="queueBtn" class="ctrl-sm" title="Очередь">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+    </button>
+  </div>
+</div>
+
+<!-- QUEUE PANEL -->
+<div id="queuePanel" class="queue-panel hidden">
+  <div class="qp-head">
+    <span>Далее в очереди</span>
+    <button id="queueClose">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+    </button>
+  </div>
+  <div id="queueList" class="qp-list"></div>
+</div>
+
+<!-- NO PREVIEW TOAST -->
+<div id="noPreviewToast" class="toast hidden">
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+  Предпросмотр недоступен для этого трека
+</div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

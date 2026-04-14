@@ -1,0 +1,13 @@
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.git/
+.env
+.DS_Store
+node_modules/
+*.log
+
+# Keep data dir structure but exclude large files if needed
+# data/dataset.csv   # uncomment to exclude the raw 400MB dataset
