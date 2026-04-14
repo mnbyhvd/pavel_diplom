@@ -1333,10 +1333,45 @@ function esc(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
+// ── Horizontal scroll rows ────────────────────────────────────
+function initScrollRows() {
+  // Wheel → horizontal scroll
+  document.addEventListener('wheel', e => {
+    const row = e.target.closest('.scroll-row');
+    if (!row) return;
+    e.preventDefault();
+    row.scrollLeft += e.deltaY || e.deltaX;
+  }, { passive: false });
+
+  // Mouse drag to scroll
+  let drag = { active: false, row: null, startX: 0, scrollX: 0 };
+
+  document.addEventListener('mousedown', e => {
+    const row = e.target.closest('.scroll-row');
+    if (!row) return;
+    drag = { active: true, row, startX: e.clientX, scrollX: row.scrollLeft };
+    row.style.cursor = 'grabbing';
+    row.style.userSelect = 'none';
+  });
+
+  document.addEventListener('mousemove', e => {
+    if (!drag.active) return;
+    drag.row.scrollLeft = drag.scrollX - (e.clientX - drag.startX);
+  });
+
+  document.addEventListener('mouseup', () => {
+    if (!drag.active) return;
+    drag.row.style.cursor = '';
+    drag.row.style.userSelect = '';
+    drag.active = false;
+  });
+}
+
 // ── BOOT ──────────────────────────────────────────────────────
 window.addEventListener('hashchange', router);
 document.addEventListener('DOMContentLoaded', () => {
   bindPlayer();
   checkAuth();
+  initScrollRows();
   router();
 });

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>WAVEMAP</title>
+  <title>Spotifika</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;1,9..40,300&display=swap" rel="stylesheet" />
@@ -23,13 +23,7 @@
 <!-- ══════════════════ SIDEBAR ══════════════════ -->
 <aside id="sidebar">
   <a class="sidebar-logo" href="#home">
-    <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
-      <rect x="2" y="14" width="4" height="12" rx="2" fill="currentColor"/>
-      <rect x="8" y="8" width="4" height="18" rx="2" fill="currentColor" opacity=".7"/>
-      <rect x="14" y="4" width="4" height="22" rx="2" fill="currentColor"/>
-      <rect x="20" y="10" width="4" height="16" rx="2" fill="currentColor" opacity=".7"/>
-    </svg>
-    <span>WAVEMAP</span>
+    <span>Spotifika</span>
   </a>
 
   <nav class="sidebar-nav">
@@ -79,20 +73,14 @@
     <!-- HOME -->
     <div id="page-home" class="page hidden">
       <div class="hero">
-        <div class="hero-eq" aria-hidden="true">
-          <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
-          <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
-          <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
-        </div>
-        <div class="hero-eyebrow">Content-based · Weighted KNN · 8 Audio Features</div>
         <h1 class="hero-title">Музыка<br/><em>по настроению</em></h1>
-        <p class="hero-sub">89 740 треков. Рекомендации в 8-мерном пространстве аудио-признаков Spotify.</p>
+        <p class="hero-sub">Рекомендации по аудио-признакам Spotify.</p>
         <div class="hero-chips">
           <span class="chip chip-v">Valence</span>
           <span class="chip-arrow">+</span>
           <span class="chip chip-e">Energy</span>
           <span class="chip-arrow">+</span>
-          <span class="chip chip-d">6 more</span>
+          <span class="chip chip-d">+6</span>
           <span class="chip-arrow">=</span>
           <span class="chip chip-r">Рекомендация</span>
         </div>
@@ -136,7 +124,7 @@
     <div id="page-discover" class="page hidden">
       <div class="page-header">
         <h1>Карта настроений</h1>
-        <p class="page-desc">89 740 треков в пространстве аудио-признаков. Кликните на карту, выберите трек или задайте координаты настроения. Алгоритм использует <strong>8 признаков</strong> — визуализируйте любые два.</p>
+        <p class="page-desc">Кликните на карту или задайте значения — алгоритм найдёт ближайшие треки.</p>
       </div>
 
       <div class="discover-grid">
@@ -189,14 +177,14 @@
     <div id="page-algorithm" class="page hidden">
       <div class="page-header">
         <h1>Алгоритм рекомендаций</h1>
-        <p class="page-desc">Content-based KNN в 8-мерном пространстве аудио-признаков Spotify. Взвешенное евклидово расстояние — пошаговая визуализация.</p>
+        <p class="page-desc">Взвешенный KNN в пространстве 8 аудио-признаков. Пошаговая визуализация работы алгоритма.</p>
       </div>
 
       <!-- Feature cards — always visible -->
       <section class="feat-cards-section">
         <div class="feat-section-header">
           <h2>Пространство признаков</h2>
-          <p class="feat-section-sub">Каждый трек — вектор в ℝ⁸. Чем ближе два вектора, тем похожее треки.</p>
+          <p class="feat-section-sub">Каждый трек — вектор в ℝ⁸.</p>
         </div>
         <div id="featureCardsGrid" class="feature-cards-grid"></div>
       </section>
@@ -218,7 +206,7 @@
           <div class="step-num"><span>01</span></div>
           <div class="step-card glass-panel">
             <h3>Вектор признаков трека</h3>
-            <p class="step-note">8 аудио-характеристик образуют точку в многомерном пространстве. Это вход алгоритма.</p>
+            <p class="step-note">8 аудио-характеристик — входной вектор алгоритма.</p>
             <div id="algoQueryCard" class="query-card"></div>
             <div class="algo-step1-layout">
               <div id="algoFeatureBars" class="feature-bars algo-feat-bars"></div>
@@ -238,7 +226,7 @@
               <div class="formula-chip"><code>z = (x − μ) / σ</code></div>
               <div class="formula-chip formula-chip-b"><code>d = √( Σ wᵢ · (zᵢ(a) − zᵢ(b))² )</code></div>
             </div>
-            <p class="step-note">Приводим все признаки к единой шкале (среднее=0, σ=1), затем умножаем на √wᵢ — вес признака. Это превращает стандартное евклидово расстояние во взвешенное.</p>
+            <p class="step-note">z-score приводит признаки к единой шкале; √wᵢ задаёт вес каждого из них.</p>
             <div id="algoNormTable" class="norm-table-wrap"></div>
           </div>
         </div>
@@ -248,7 +236,7 @@
           <div class="step-num"><span>03</span></div>
           <div class="step-card glass-panel">
             <h3>Пространство признаков — 2D проекция</h3>
-            <p class="step-note">Алгоритм работает в 8D — выберите любые 2 оси для визуализации. Жёлтая точка — ваш трек, голубые — соседи.</p>
+            <p class="step-note">Выберите 2 оси для проекции. Зелёная точка — ваш трек, голубые — соседи.</p>
             <div class="algo-axis-selectors">
               <div class="algo-axis-group">
                 <label class="algo-axis-lbl">Ось X</label>
@@ -271,7 +259,7 @@
           <div class="step-num"><span>04</span></div>
           <div class="step-card glass-panel">
             <h3>Вклад признаков в расстояние</h3>
-            <p class="step-note">Для каждого рекомендованного трека — доля каждого признака в суммарном квадрате расстояния. Помогает понять, <em>почему</em> треки похожи.</p>
+            <p class="step-note">Вклад каждого признака в итоговое расстояние.</p>
             <div class="algo-chart-box algo-chart-box-lg">
               <canvas id="algoBarChart"></canvas>
             </div>
@@ -283,7 +271,7 @@
           <div class="step-num"><span>05</span></div>
           <div class="step-card glass-panel">
             <h3>K ближайших соседей — результат</h3>
-            <p class="step-note">Отсортированы по взвешенному расстоянию. Меньше = ближе = похожее.</p>
+            <p class="step-note">Отсортированы по расстоянию — чем меньше, тем похожее.</p>
             <div id="algoRecsList" class="track-list"></div>
           </div>
         </div>
