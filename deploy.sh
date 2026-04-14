@@ -65,7 +65,9 @@ sleep 3
 docker compose run --rm certbot certonly \
     --webroot --webroot-path=/var/www/certbot \
     --email "$EMAIL" --agree-tos --no-eff-email \
-    -d "$DOMAIN" -d "www.$DOMAIN"
+    -d "$DOMAIN"
+# Примечание: www.$DOMAIN не включён — добавь -d "www.$DOMAIN" только если
+# в DNS есть A-запись для www (иначе certbot зависнет)
 
 # Restore full nginx config with SSL
 cp "$NGINX_CONF_BAK" "$NGINX_CONF"
