@@ -98,10 +98,27 @@ async function checkAuth() {
     const data = await api('/auth/me');
     S.auth.authenticated = data.authenticated;
     if (data.authenticated) {
-      S.auth.accessToken  = data.access_token;
-      S.auth.product      = data.product;
-      S.auth.displayName  = data.display_name;
-      S.auth.avatar       = data.avatar;
+      S.auth.accessToken = data.access_token;
+
+      // Server may be geo-blocked by Spotify — fetch user profile directly from browser
+      if (!data.product || !data.display_name) {
+        try {
+          const resp = await fetch('https://api.spotify.com/v1/me', {
+            headers: { Authorization: `Bearer ${data.access_token}` },
+          });
+          if (resp.ok) {
+            const u = await resp.json();
+            data.product      = u.product      || data.product;
+            data.display_name = u.display_name || data.display_name;
+            data.avatar       = u.images?.[0]?.url || data.avatar;
+            data.country      = u.country      || data.country;
+          }
+        } catch (_) {}
+      }
+
+      S.auth.product     = data.product;
+      S.auth.displayName = data.display_name;
+      S.auth.avatar      = data.avatar;
       renderAuthUI(data);
       if (data.product === 'premium') initSpotifySDK();
       // Enrich any already-rendered tracks with album art
