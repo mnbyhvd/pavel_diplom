@@ -104,6 +104,22 @@ async function checkAuth() {
       S.auth.avatar       = data.avatar;
       renderAuthUI(data);
       if (data.product === 'premium') initSpotifySDK();
+      // Enrich any already-rendered tracks with album art
+      setTimeout(() => {
+        const tids = [...document.querySelectorAll('[data-tid]')].map(el => el.dataset.tid);
+        if (tids.length) {
+          fetchSpotifyTracks(tids).then(artMap => {
+            // Patch S.homeData tracks if loaded
+            if (S.homeData) {
+              [...(S.homeData.featured||[]), ...(S.homeData.mood_picks||[])].forEach(t => {
+                const info = artMap[t.track_id];
+                if (info?.album_image) t.album_image = info.album_image;
+              });
+            }
+            applyArtToDOM(artMap);
+          });
+        }
+      }, 500);
     }
   } catch (_) {}
 }
@@ -209,15 +225,109 @@ function stopSDKProgressSync() {
   sdkSyncInterval = null;
 }
 
+// ── Spotify API helpers (client-side, uses user token) ────────
+
+async function getSpotifyToken() {
+  try {
+    const d = await api('/auth/token');
+    S.auth.accessToken = d.access_token;
+    return d.access_token;
+  } catch (_) {
+    return S.auth.accessToken;
+  }
+}
+
+// Batch-fetch track info (album art, external_url, preview_url) from Spotify API.
+// Returns map: { trackId: { album_image, external_url, preview_url } }
+async function fetchSpotifyTracks(trackIds) {
+  if (!S.auth.authenticated || !trackIds.length) return {};
+  const result = {};
+  try {
+    const token = await getSpotifyToken();
+    if (!token) return result;
+    for (let i = 0; i < trackIds.length; i += 50) {
+      const batch = trackIds.slice(i, i + 50).join(',');
+      const resp = await fetch(`https://api.spotify.com/v1/tracks?ids=${batch}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!resp.ok) { console.warn('[Art] Spotify tracks fetch:', resp.status); break; }
+      const data = await resp.json();
+      (data.tracks || []).forEach(t => {
+        if (!t?.id) return;
+        result[t.id] = {
+          album_image:  t.album?.images?.[1]?.url || t.album?.images?.[0]?.url || null,
+          external_url: t.external_urls?.spotify || null,
+          preview_url:  t.preview_url || null,
+        };
+      });
+    }
+  } catch (e) {
+    console.warn('[Art] fetchSpotifyTracks error:', e);
+  }
+  return result;
+}
+
+// Update visible track cards and list items with fetched art.
+function applyArtToDOM(artMap) {
+  if (!Object.keys(artMap).length) return;
+  // Scroll-row cards
+  document.querySelectorAll('.track-card[data-tid]').forEach(card => {
+    const info = artMap[card.dataset.tid];
+    if (!info?.album_image) return;
+    let img = card.querySelector('.card-art');
+    if (!img) {
+      img = document.createElement('img');
+      img.className = 'card-art';
+      card.querySelector('.card-art-ph')?.replaceWith(img);
+      if (!img.parentNode) card.prepend(img);
+    }
+    if (!img.src) { img.src = info.album_image; img.loading = 'lazy'; }
+  });
+  // Track-list items
+  document.querySelectorAll('.track-item[data-tid]').forEach(item => {
+    const info = artMap[item.dataset.tid];
+    if (!info?.album_image) return;
+    const ph = item.querySelector('.ti-art-ph');
+    if (ph) {
+      const img = document.createElement('img');
+      img.className = 'ti-art';
+      img.src = info.album_image;
+      img.loading = 'lazy';
+      ph.replaceWith(img);
+    }
+  });
+}
+
+async function enrichWithArt(tracks) {
+  if (!S.auth.authenticated || !tracks.length) return;
+  const missing = tracks.filter(t => !t.album_image).map(t => t.track_id);
+  if (!missing.length) return;
+  const artMap = await fetchSpotifyTracks(missing);
+  // Patch track objects so player also gets art
+  tracks.forEach(t => {
+    const info = artMap[t.track_id];
+    if (info?.album_image) t.album_image = info.album_image;
+    if (info?.external_url && !t.external_url) t.external_url = info.external_url;
+    if (info?.preview_url  && !t.preview_url)  t.preview_url  = info.preview_url;
+  });
+  applyArtToDOM(artMap);
+}
+
 async function sdkPlay(trackId) {
   if (!S.sdk.ready || !S.sdk.deviceId) return false;
   try {
-    const token = S.auth.accessToken;
-    await fetch(`https://api.spotify.com/v1/me/player/play?device_id=${S.sdk.deviceId}`, {
+    const token = await getSpotifyToken();
+    const resp = await fetch(`https://api.spotify.com/v1/me/player/play?device_id=${S.sdk.deviceId}`, {
       method: 'PUT',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ uris: [`spotify:track:${trackId}`] }),
     });
+    // Spotify returns 204 No Content on success
+    if (!resp.ok && resp.status !== 204) {
+      const body = await resp.text().catch(() => '');
+      console.error('[SDK] play failed:', resp.status, body);
+      return false;
+    }
     updatePlaybackBadge('Spotify Premium · полный трек');
     return true;
   } catch (e) {
@@ -258,6 +368,32 @@ const Player = (() => {
     track = t;
     updateUI(t);
     markPlaying(t.track_id);
+
+    // Fetch album art + external_url from Spotify API if missing
+    if (!t.album_image && S.auth.authenticated) {
+      fetchSpotifyTracks([t.track_id]).then(artMap => {
+        const info = artMap[t.track_id];
+        if (!info) return;
+        if (info.album_image) {
+          track.album_image = info.album_image;
+          const art = document.getElementById('plArt');
+          const ph  = document.querySelector('.pl-art-ph');
+          art.src = info.album_image;
+          art.classList.add('show');
+          ph?.classList.add('hidden');
+          updateAmbient(info.album_image);
+        }
+        if (info.external_url && !track.external_url) {
+          track.external_url = info.external_url;
+          const ext = document.getElementById('plSpotify');
+          ext.href = info.external_url;
+          ext.classList.remove('hidden');
+        }
+        if (info.preview_url && !track.preview_url) {
+          track.preview_url = info.preview_url;
+        }
+      }).catch(() => {});
+    }
 
     // Disable play button while loading
     document.getElementById('btnPlay').disabled = true;
@@ -456,6 +592,9 @@ async function loadHome() {
       document.getElementById('mood-label').textContent = `V=${v} · E=${e}`;
     }
     renderTrackList(document.getElementById('mood-picks'), d.mood_picks || []);
+    // Enrich album art from Spotify API (client-side, non-blocking)
+    const allHomeTracks = [...(d.featured || []), ...(d.mood_picks || [])];
+    enrichWithArt(allHomeTracks);
   } catch (err) {
     document.getElementById('featured-row').innerHTML = `<p class="empty-hint">${esc(err.message)}</p>`;
   }
@@ -478,6 +617,7 @@ function renderScrollRow(container, tracks) {
   tracks.forEach(t => {
     const card = document.createElement('div');
     card.className = 'track-card';
+    card.dataset.tid = t.track_id;
     const artHtml = t.album_image
       ? `<img class="card-art" src="${esc(t.album_image)}" loading="lazy" alt="" />`
       : `<div class="card-art-ph">♪</div>`;
@@ -587,6 +727,7 @@ async function doSearch(q) {
   try {
     const d = await api(`/api/search/local?q=${encodeURIComponent(q)}&limit=40`);
     renderTrackList(c, d.results || []);
+    enrichWithArt(d.results || []);
   } catch (err) {
     c.innerHTML = `<p class="empty-hint">${esc(err.message)}</p>`;
   }
@@ -1251,6 +1392,7 @@ async function fetchGenreTracksPage(genre, page) {
     renderTrackList(c, d.tracks, { append: true, startIndex: (page-1)*50 });
     const more = document.getElementById('genreLoadMore');
     ((page-1)*50 + d.tracks.length < g.total) ? more.classList.remove('hidden') : more.classList.add('hidden');
+    enrichWithArt(d.tracks);
   } catch (err) {
     document.getElementById('genreTrackList').innerHTML = `<p class="empty-hint">${esc(err.message)}</p>`;
   } finally { g.loading = false; }
