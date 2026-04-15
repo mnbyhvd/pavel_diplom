@@ -56,7 +56,7 @@ class SpotifyAuth:
             "redirect_uri":  self.redirect_uri,
             "scope":         SCOPES,
             "state":         state,
-            "show_dialog":   "false",
+            "show_dialog":   "true",
         }
         return f"{SPOTIFY_AUTH_URL}?{urlencode(params)}", session_id
 
