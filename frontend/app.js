@@ -5,8 +5,9 @@
 
 // ── State ─────────────────────────────────────────────────────
 const S = {
-  page:          'home',
-  homeData:      null,
+  page:               'home',
+  homeData:           null,
+  spotifyApiBlocked:  false,
   allTracks:     [],
   moodChart:     null,
   featuresMeta:  null,   // from /api/features
@@ -211,7 +212,11 @@ function initSpotifySDK() {
   });
 
   player.addListener('initialization_error', ({ message }) => console.error('[SDK] init:', message));
-  player.addListener('authentication_error', ({ message }) => console.error('[SDK] auth:', message));
+  player.addListener('authentication_error', ({ message }) => {
+    console.error('[SDK] auth:', message);
+    S.spotifyApiBlocked = true;
+    showSpotifyBlockedBanner();
+  });
   player.addListener('account_error',        ({ message }) => {
     console.error('[SDK] account:', message);
     showToast('Требуется Spotify Premium для полного воспроизведения');
@@ -258,6 +263,7 @@ async function getSpotifyToken() {
 // Returns map: { trackId: { album_image, external_url, preview_url } }
 async function fetchSpotifyTracks(trackIds) {
   if (!S.auth.authenticated || !trackIds.length) return {};
+  if (S.spotifyApiBlocked) return {};   // stop retrying after geo-block detected
   const result = {};
   try {
     const token = await getSpotifyToken();
@@ -267,7 +273,13 @@ async function fetchSpotifyTracks(trackIds) {
       const resp = await fetch(`https://api.spotify.com/v1/tracks?ids=${batch}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (!resp.ok) { console.warn('[Art] Spotify tracks fetch:', resp.status); break; }
+      if (!resp.ok) {
+        if (resp.status === 403) {
+          S.spotifyApiBlocked = true;
+          showSpotifyBlockedBanner();
+        }
+        break;
+      }
       const data = await resp.json();
       (data.tracks || []).forEach(t => {
         if (!t?.id) return;
@@ -282,6 +294,24 @@ async function fetchSpotifyTracks(trackIds) {
     console.warn('[Art] fetchSpotifyTracks error:', e);
   }
   return result;
+}
+
+function showSpotifyBlockedBanner() {
+  if (document.getElementById('spotifyBlockedBanner')) return;
+  const banner = document.createElement('div');
+  banner.id = 'spotifyBlockedBanner';
+  banner.style.cssText = `
+    position:fixed; top:0; left:0; right:0; z-index:9999;
+    background:#1a1a2e; border-bottom:1px solid #c8ff4740;
+    padding:10px 20px; display:flex; align-items:center; gap:12px;
+    font-size:13px; color:#aaa;
+  `;
+  banner.innerHTML = `
+    <span style="color:#c8ff47; font-size:16px">⚠</span>
+    <span>Spotify API заблокирован в вашем регионе. Обложки и воспроизведение недоступны без VPN.</span>
+    <button onclick="this.parentNode.remove()" style="margin-left:auto;background:none;border:none;color:#666;cursor:pointer;font-size:16px">✕</button>
+  `;
+  document.body.prepend(banner);
 }
 
 // Update visible track cards and list items with fetched art.
