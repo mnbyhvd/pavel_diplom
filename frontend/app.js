@@ -270,13 +270,18 @@ async function fetchSpotifyTracks(trackIds) {
     if (!token) return result;
     for (let i = 0; i < trackIds.length; i += 50) {
       const batch = trackIds.slice(i, i + 50).join(',');
-      const resp = await fetch(`https://api.spotify.com/v1/tracks?ids=${batch}&market=from_token`, {
+      const resp = await fetch(`https://api.spotify.com/v1/tracks?ids=${batch}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!resp.ok) {
-        if (resp.status === 403) {
-          S.spotifyApiBlocked = true;
-          showSpotifyBlockedBanner();
+        let errBody = '';
+        try { errBody = JSON.stringify(await resp.json()); } catch(_) {}
+        console.warn('[Art] Spotify tracks API error', resp.status, errBody);
+        if (resp.status === 401) {
+          // Token expired — clear so next call re-fetches
+          S.auth.accessToken = null;
+        } else if (resp.status === 403) {
+          console.warn('[Art] 403 body:', errBody);
         }
         break;
       }
