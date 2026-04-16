@@ -272,26 +272,14 @@ async function getSpotifyToken() {
 // Returns map: { trackId: { album_image, external_url, preview_url } }
 async function fetchSpotifyTracks(trackIds) {
   if (!S.auth.authenticated || !trackIds.length) return {};
-  if (S.spotifyApiBlocked) return {};   // stop retrying after geo-block detected
   const result = {};
   try {
-    const token = await getSpotifyToken();
-    if (!token) return result;
     for (let i = 0; i < trackIds.length; i += 50) {
       const batch = trackIds.slice(i, i + 50).join(',');
-      const resp = await fetch(`https://api.spotify.com/v1/tracks?ids=${batch}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      // Use server-side proxy to avoid client-side geo-blocks on Spotify API
+      const resp = await fetch(`/api/spotify/tracks?ids=${batch}`);
       if (!resp.ok) {
-        let errBody = '';
-        try { errBody = JSON.stringify(await resp.json()); } catch(_) {}
-        console.warn('[Art] Spotify tracks API error', resp.status, errBody);
-        if (resp.status === 401) {
-          // Token expired — clear so next call re-fetches
-          S.auth.accessToken = null;
-        } else if (resp.status === 403) {
-          console.warn('[Art] 403 body:', errBody);
-        }
+        console.warn('[Art] tracks proxy error', resp.status, await resp.text().catch(()=>''));
         break;
       }
       const data = await resp.json();

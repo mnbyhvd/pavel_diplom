@@ -8,6 +8,8 @@ from __future__ import annotations
 import logging
 import os
 import random
+
+import httpx
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
@@ -191,6 +193,27 @@ async def auth_token(spotify_session: str = Cookie(None)):
     if not token:
         raise HTTPException(401, "Session expired")
     return {"access_token": token}
+
+
+@app.get("/api/spotify/tracks")
+async def spotify_tracks_proxy(ids: str, spotify_session: str = Cookie(None)):
+    """Proxy Spotify GET /v1/tracks through the server to avoid client-side geo-blocks."""
+    if not spotify_session:
+        raise HTTPException(401, "Not authenticated")
+    auth = _spotify_auth()
+    token = await auth.get_valid_token(spotify_session)
+    if not token:
+        raise HTTPException(401, "Session expired")
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(
+            "https://api.spotify.com/v1/tracks",
+            params={"ids": ids},
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=10,
+        )
+    if not resp.is_success:
+        raise HTTPException(resp.status_code, resp.text)
+    return resp.json()
 
 
 # ─── Home ─────────────────────────────────────────────────────
