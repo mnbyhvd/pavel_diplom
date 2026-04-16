@@ -21,14 +21,14 @@ ALL_FEATURES = [
 # Higher weight = feature contributes more to similarity calculation
 # Tuned based on perceptual importance for music similarity
 FEATURE_WEIGHTS: dict[str, float] = {
-    "valence":          1.5,   # mood / emotional tone — most perceptually salient
-    "energy":           1.5,   # perceived intensity — equally important
-    "danceability":     1.2,   # rhythm and groove feel
-    "acousticness":     1.2,   # acoustic vs electronic timbre
-    "tempo":            0.9,   # BPM — important but already captured via energy
-    "instrumentalness": 1.0,   # vocal vs instrumental
-    "speechiness":      0.7,   # spoken-word detection — less perceptually salient
-    "liveness":         0.5,   # live-recording artifact — least salient
+    "valence":          2.0,   # mood / emotional tone — strongest perceptual cue
+    "energy":           2.0,   # perceived intensity — equally dominant
+    "danceability":     1.5,   # rhythm feel — highly noticeable
+    "acousticness":     1.5,   # acoustic vs electronic — immediately audible
+    "tempo":            1.0,   # BPM — noticeable but correlated with energy
+    "instrumentalness": 1.2,   # vocal vs instrumental — clear perceptual difference
+    "speechiness":      0.4,   # spoken-word detector — adds noise, reduce weight
+    "liveness":         0.3,   # live recording artifact — irrelevant to similarity
 }
 
 # Display metadata for each feature

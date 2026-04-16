@@ -1,27 +1,31 @@
 """
-Music recommendation engine — hybrid content-based filtering.
+Music recommendation engine — genre-stratified weighted KNN.
 
-Algorithm (v2):
-  1. Represent each track as a point in 8D audio feature space
-  2. Z-score normalize all features with StandardScaler
-  3. Apply per-feature weights by multiplying normalized values by sqrt(weight)
-  4. PRIMARY: Cosine similarity KNN — measures angle between feature vectors,
-     which captures the audio *profile* better than Euclidean distance in high-D space.
-     (Kaggle studies on Spotify dataset consistently show cosine > Euclidean for audio)
-  5. POST-PROCESSING pipeline:
-     a. Genre boost  — same-genre tracks score better (soft, not hard filter)
-     b. Popularity blend — blends similarity with track popularity (α=0.08)
-     c. Artist diversity — at most MAX_PER_ARTIST tracks per artist in results
+Algorithm (v3):
+  1. Z-score normalize all features with StandardScaler
+  2. Apply per-feature weights (sqrt trick for weighted Euclidean)
+  3. Build TWO KNN indices (ball_tree, euclidean):
+       - _knn_genre: one index per genre (fast same-genre lookup)
+       - _knn_global: full dataset index (cross-genre fallback)
+  4. Recommendation pipeline:
+       a. Fetch SAME_GENRE_RATIO of candidates from the query track's genre index
+       b. Fill remainder from global index
+       c. Deduplicate by track_id (Kaggle dataset has duplicate track_ids across genres)
+       d. Artist diversity cap (MAX_PER_ARTIST per artist)
+  5. Popularity blend (small α) as a tiebreaker only
 
-Reference implementations:
-  - https://www.kaggle.com/code/vatsalmavani/music-recommendation-system
-  - https://www.kaggle.com/code/thomasbs86/spotify-song-recommender
+Why Euclidean (not cosine) on z-scored data:
+  After StandardScaler, each feature has mean=0 and std=1.
+  Euclidean distance in this space equals the L2 norm of differences,
+  which has a clear geometric interpretation: "how far apart are the tracks
+  in the standardized feature space". Cosine measures angle from origin,
+  which is misleading when vectors have both positive and negative components
+  (as z-scored features do).
 """
 
 from __future__ import annotations
 
 import math
-from typing import Literal
 
 import numpy as np
 import pandas as pd
@@ -30,19 +34,22 @@ from sklearn.preprocessing import StandardScaler
 
 from features_meta import ALL_FEATURES, FEATURE_WEIGHTS
 
-# Genre boost: same-genre candidates get their distance multiplied by this factor
-# (< 1.0 → shorter distance → ranked higher)
-GENRE_SAME_FACTOR   = 0.75   # 25% bonus for same genre
-GENRE_CROSS_FACTOR  = 1.15   # 15% penalty for different genre
+# --- Tuning constants -------------------------------------------------------
 
-# Popularity blend weight (0 = pure content, 1 = pure popularity)
-POPULARITY_ALPHA = 0.08
+# Fraction of recommendations to pull from same-genre index (rest from global)
+SAME_GENRE_RATIO = 0.70
 
-# Maximum tracks from the same artist in one recommendation list
+# Popularity as a tiebreaker only — very small alpha
+POPULARITY_ALPHA = 0.04
+
+# Artist diversity
 MAX_PER_ARTIST = 2
 
-# How many extra candidates to fetch before post-processing
-CANDIDATE_MULTIPLIER = 4
+# Extra candidates multiplier before final filtering
+CANDIDATE_MULTIPLIER = 5
+
+# Minimum genre pool size to use genre-stratified search
+MIN_GENRE_POOL = 50
 
 
 def _safe(value):
@@ -63,15 +70,7 @@ def _safe(value):
 
 
 class MusicRecommender:
-    """
-    Content-based music recommender with cosine similarity + post-processing.
-
-    Improvements over v1 (plain weighted Euclidean KNN):
-    - Cosine similarity (better for high-D audio feature vectors)
-    - Genre-aware re-ranking (same genre gets a score boost)
-    - Popularity blending (8% weight on popularity)
-    - Artist diversity cap (max MAX_PER_ARTIST per artist)
-    """
+    """Genre-stratified weighted KNN recommender."""
 
     def __init__(
         self,
@@ -86,12 +85,14 @@ class MusicRecommender:
         self.n_neighbors = n_neighbors
 
         self._scaler = StandardScaler()
-        # Use cosine metric — measures angular distance between feature vectors.
-        # Ball-tree doesn't support cosine; brute-force is fast enough for 90k tracks.
-        self._knn = NearestNeighbors(metric="cosine", algorithm="brute")
+        self._knn_global = NearestNeighbors(metric="euclidean", algorithm="ball_tree")
+        # genre -> (NearestNeighbors, global_indices)
+        self._knn_genre: dict[str, tuple[NearestNeighbors, np.ndarray]] = {}
+
         self._df: pd.DataFrame | None = None
         self._weight_sqrt: np.ndarray | None = None
-        self._pop_norm: np.ndarray | None = None   # popularity normalized to [0,1]
+        self._X_weighted: np.ndarray | None = None   # cached weighted matrix
+        self._pop_norm: np.ndarray | None = None
         self._fitted = False
 
     # ------------------------------------------------------------------
@@ -103,24 +104,32 @@ class MusicRecommender:
         df = df.copy()
         self._df = df.reset_index(drop=True)
 
-        # Only keep features that actually exist in the dataframe
         self.features = [f for f in self.features if f in self._df.columns]
 
-        # Build sqrt(weight) vector for weighted cosine
         w = np.array([self.weights.get(f, 1.0) for f in self.features])
         self._weight_sqrt = np.sqrt(w)
 
         X = self._df[self.features].fillna(0.0).values.astype(float)
-
         if self.normalize:
             X = self._scaler.fit_transform(X)
 
-        # Pre-multiply by sqrt(weights) — turns standard cosine into weighted cosine
-        X_weighted = X * self._weight_sqrt
+        self._X_weighted = X * self._weight_sqrt
 
-        self._knn.fit(X_weighted)
+        # Global KNN
+        self._knn_global.fit(self._X_weighted)
 
-        # Precompute normalized popularity scores for blending
+        # Per-genre KNN indices
+        if "track_genre" in self._df.columns:
+            for genre, group in self._df.groupby("track_genre"):
+                if len(group) < MIN_GENRE_POOL:
+                    continue
+                g_indices = group.index.to_numpy()
+                X_g = self._X_weighted[g_indices]
+                knn_g = NearestNeighbors(metric="euclidean", algorithm="ball_tree")
+                knn_g.fit(X_g)
+                self._knn_genre[str(genre)] = (knn_g, g_indices)
+
+        # Normalized popularity for tiebreaking
         pop = self._df["popularity"].fillna(0).values.astype(float)
         pop_max = pop.max()
         self._pop_norm = pop / pop_max if pop_max > 0 else pop
@@ -136,28 +145,40 @@ class MusicRecommender:
         if idx is None:
             return []
 
+        query_vec = self._X_weighted[idx : idx + 1]
         query_genre = str(self._df.iloc[idx].get("track_genre") or "")
-        query_artist = str(self._df.iloc[idx].get("artist_name") or "").lower()
 
-        raw_candidates = self._fetch_candidates(idx, n)
-        results = self._postprocess(
-            raw_candidates,
-            n=n,
-            query_genre=query_genre,
-            exclude_track_id=track_id,
-            exclude_artist=query_artist,
-        )
-        return results
+        want_genre = max(1, round(n * SAME_GENRE_RATIO))
+        want_global = n - want_genre
+
+        # ── Collect candidates ─────────────────────────────────────
+        candidates: dict[int, float] = {}   # global_idx → distance
+
+        # 1. Same-genre candidates
+        if query_genre in self._knn_genre:
+            knn_g, g_indices = self._knn_genre[query_genre]
+            k_g = min(want_genre * CANDIDATE_MULTIPLIER, len(g_indices))
+            dists, local_idxs = knn_g.kneighbors(query_vec, n_neighbors=k_g)
+            for d, li in zip(dists[0], local_idxs[0]):
+                gi = int(g_indices[li])
+                if gi != idx:
+                    candidates[gi] = float(d)
+
+        # 2. Global candidates to fill remainder / fallback
+        k_glob = min((want_global + want_genre) * CANDIDATE_MULTIPLIER, len(self._df))
+        dists_g, idxs_g = self._knn_global.kneighbors(query_vec, n_neighbors=k_glob)
+        for d, gi in zip(dists_g[0], idxs_g[0]):
+            gi = int(gi)
+            if gi != idx and gi not in candidates:
+                candidates[gi] = float(d)
+
+        # ── Post-process ──────────────────────────────────────────
+        return self._postprocess(candidates, n=n, exclude_track_id=track_id)
 
     def recommend_by_mood(
         self, valence: float, energy: float, n: int | None = None
     ) -> list[dict]:
-        """Return tracks closest to a (valence, energy) mood point.
-
-        Unknown feature dimensions are set to their dataset mean — which after
-        z-score normalization becomes z=0 (meaning «typical/average»), ensuring
-        they do not bias the search toward any extreme.
-        """
+        """Return tracks closest to a (valence, energy) mood point."""
         self._check_fitted()
         n = n or self.n_neighbors
 
@@ -167,39 +188,20 @@ class MusicRecommender:
                 full[0, self.features.index("valence")] = valence
             if "energy" in self.features:
                 full[0, self.features.index("energy")] = energy
-            point_transformed = self._scaler.transform(full) * self._weight_sqrt
+            point = self._scaler.transform(full) * self._weight_sqrt
         else:
             full = np.zeros((1, len(self.features)))
             if "valence" in self.features:
                 full[0, self.features.index("valence")] = valence
             if "energy" in self.features:
                 full[0, self.features.index("energy")] = energy
-            point_transformed = full * self._weight_sqrt
+            point = full * self._weight_sqrt
 
         k = min(n * CANDIDATE_MULTIPLIER, len(self._df))
-        distances, indices = self._knn.kneighbors(point_transformed, n_neighbors=k)
+        dists, idxs = self._knn_global.kneighbors(point, n_neighbors=k)
 
-        # For mood-based: popularity blend only (no genre filter since no query track)
-        candidates = []
-        for dist, i in zip(distances[0], indices[0]):
-            pop_score = float(self._pop_norm[i])
-            blended = (1.0 - POPULARITY_ALPHA) * float(dist) - POPULARITY_ALPHA * pop_score
-            candidates.append((blended, float(dist), int(i)))
-
-        candidates.sort(key=lambda x: x[0])
-
-        results = []
-        seen_artists: dict[str, int] = {}
-        for _, dist, i in candidates:
-            if len(results) >= n:
-                break
-            artist = str(self._df.iloc[i].get("artist_name") or "").lower()
-            if seen_artists.get(artist, 0) >= MAX_PER_ARTIST:
-                continue
-            seen_artists[artist] = seen_artists.get(artist, 0) + 1
-            results.append(self._row_to_dict(self._df.iloc[i], distance=dist))
-
-        return results
+        candidates = {int(gi): float(d) for d, gi in zip(dists[0], idxs[0])}
+        return self._postprocess(candidates, n=n, exclude_track_id=None)
 
     def explain_recommendations(self, track_id: str, n: int = 6) -> dict:
         """Return detailed per-feature explanation for recommendations."""
@@ -210,7 +212,6 @@ class MusicRecommender:
 
         recs = self.recommend(track_id, n=n)
 
-        # Per-feature dataset statistics
         feature_stats: dict[str, dict] = {}
         for i, f in enumerate(self.features):
             col = self._df[f]
@@ -226,7 +227,6 @@ class MusicRecommender:
                 entry["scaler_scale"] = round(float(self._scaler.scale_[i]), 4)
             feature_stats[f] = entry
 
-        # Query track's per-feature raw + z values
         query_row = self._df.iloc[idx]
         query_features: dict[str, dict] = {}
         for i, f in enumerate(self.features):
@@ -240,22 +240,18 @@ class MusicRecommender:
                 entry["z_weighted"] = round(z * float(self._weight_sqrt[i]), 4)
             query_features[f] = entry
 
-        # Per-recommendation feature-level distance breakdown
         rec_details = []
         for rec in recs:
             rec_idx = self._find_index(rec["track_id"])
             if rec_idx is None:
                 continue
             rec_row = self._df.iloc[rec_idx]
-
             contributions: dict[str, dict] = {}
             total_sq = 0.0
-
             for i, f in enumerate(self.features):
                 raw_a = float(query_row[f]) if not math.isnan(float(query_row[f])) else 0.0
                 raw_b = float(rec_row[f]) if not math.isnan(float(rec_row[f])) else 0.0
                 raw_diff = abs(raw_a - raw_b)
-
                 if self.normalize:
                     mu  = float(self._scaler.mean_[i])
                     sig = float(self._scaler.scale_[i])
@@ -266,26 +262,23 @@ class MusicRecommender:
                 else:
                     z_diff = raw_diff
                     sq = (float(self._weight_sqrt[i]) * raw_diff) ** 2
-
                 total_sq += sq
                 contributions[f] = {
-                    "raw_a":    round(raw_a, 4),
-                    "raw_b":    round(raw_b, 4),
-                    "raw_diff": round(raw_diff, 4),
-                    "z_diff":   round(z_diff, 4),
+                    "raw_a":      round(raw_a, 4),
+                    "raw_b":      round(raw_b, 4),
+                    "raw_diff":   round(raw_diff, 4),
+                    "z_diff":     round(z_diff, 4),
                     "sq_contrib": round(sq, 6),
-                    "pct": 0.0,
+                    "pct":        0.0,
                 }
-
             for f in contributions:
                 contributions[f]["pct"] = (
                     round(contributions[f]["sq_contrib"] / total_sq * 100, 1)
                     if total_sq > 0 else 0.0
                 )
-
             rec_details.append({
-                "track":              rec,
-                "total_distance":     rec.get("distance"),
+                "track":                 rec,
+                "total_distance":        rec.get("distance"),
                 "feature_contributions": contributions,
             })
 
@@ -295,9 +288,9 @@ class MusicRecommender:
                 "features":    self.features,
                 "weights":     {f: round(self.weights.get(f, 1.0), 3) for f in self.features},
                 "normalize":   self.normalize,
-                "metric":      "weighted_cosine + genre_boost + popularity_blend",
+                "metric":      "weighted_euclidean (z-scored) + genre-stratified",
                 "n_neighbors": n,
-                "formula":     "cosine(w·z(a), w·z(b)) × genre_factor − α·popularity",
+                "formula":     "d = √( Σ wᵢ · (zᵢ(a) − zᵢ(b))² )",
             },
             "feature_stats":   feature_stats,
             "query_features":  query_features,
@@ -305,7 +298,6 @@ class MusicRecommender:
         }
 
     def all_tracks(self) -> list[dict]:
-        """Return all tracks with audio features (for visualisation)."""
         self._check_fitted()
         return [self._row_to_dict(row) for _, row in self._df.iterrows()]
 
@@ -359,74 +351,52 @@ class MusicRecommender:
     # Private helpers
     # ------------------------------------------------------------------
 
-    def _fetch_candidates(self, idx: int, n: int) -> list[tuple[float, int]]:
-        """Fetch CANDIDATE_MULTIPLIER*n nearest neighbors by cosine distance."""
-        X = self._get_feature_matrix()
-        k = min(n * CANDIDATE_MULTIPLIER + 1, len(self._df))
-        distances, indices = self._knn.kneighbors(X[idx : idx + 1], n_neighbors=k)
-        return [
-            (float(dist), int(i))
-            for dist, i in zip(distances[0], indices[0])
-            if int(i) != idx
-        ]
-
     def _postprocess(
         self,
-        candidates: list[tuple[float, int]],
+        candidates: dict[int, float],
         n: int,
-        query_genre: str,
-        exclude_track_id: str,
-        exclude_artist: str,
+        exclude_track_id: str | None,
     ) -> list[dict]:
         """
-        Re-rank candidates with:
-          1. Genre boost  — same genre → distance × GENRE_SAME_FACTOR
-          2. Popularity blend — subtract α * normalized_popularity from score
-          3. Artist diversity — max MAX_PER_ARTIST tracks per artist
+        Re-rank candidates:
+          1. Popularity tiebreaker (very small α)
+          2. Deduplicate by Spotify track_id (same song, different genre row)
+          3. Artist diversity cap
         """
-        scored: list[tuple[float, float, int]] = []  # (blended_score, raw_dist, idx)
-
-        for raw_dist, i in candidates:
-            row = self._df.iloc[i]
-
-            # 1. Genre boost
-            track_genre = str(row.get("track_genre") or "")
-            if query_genre and track_genre:
-                genre_factor = GENRE_SAME_FACTOR if track_genre == query_genre else GENRE_CROSS_FACTOR
-            else:
-                genre_factor = 1.0
-            dist_boosted = raw_dist * genre_factor
-
-            # 2. Popularity blend
-            pop_score = float(self._pop_norm[i])
-            blended = (1.0 - POPULARITY_ALPHA) * dist_boosted - POPULARITY_ALPHA * pop_score
-
-            scored.append((blended, raw_dist, i))
-
+        # Score = distance − α*popularity  (lower is better)
+        scored = []
+        for gi, dist in candidates.items():
+            pop = float(self._pop_norm[gi])
+            score = (1.0 - POPULARITY_ALPHA) * dist - POPULARITY_ALPHA * pop
+            scored.append((score, dist, gi))
         scored.sort(key=lambda x: x[0])
 
-        # 3. Artist diversity filter
         results: list[dict] = []
+        seen_track_ids: set[str] = set()
         seen_artists: dict[str, int] = {}
 
-        for _, raw_dist, i in scored:
+        for _, dist, gi in scored:
             if len(results) >= n:
                 break
-            row = self._df.iloc[i]
-            if str(row.get("track_id")) == exclude_track_id:
+            row = self._df.iloc[gi]
+            tid = str(row["track_id"])
+            if exclude_track_id and tid == exclude_track_id:
                 continue
+            # Deduplicate same Spotify track_id (multiple genre rows for same song)
+            if tid in seen_track_ids:
+                continue
+            seen_track_ids.add(tid)
+            # Artist diversity
             artist = str(row.get("artist_name") or "").lower()
             if seen_artists.get(artist, 0) >= MAX_PER_ARTIST:
                 continue
             seen_artists[artist] = seen_artists.get(artist, 0) + 1
-            results.append(self._row_to_dict(row, distance=raw_dist))
+            results.append(self._row_to_dict(row, distance=dist))
 
         return results
 
     @staticmethod
     def _row_to_dict(row, distance: float | None = None) -> dict:
-        """Serialize a DataFrame row to a JSON-safe dict."""
-
         def sf(key: str, default: float = 0.0) -> float:
             val = row.get(key)
             if val is None:
@@ -438,23 +408,23 @@ class MusicRecommender:
                 return default
 
         return {
-            "track_id":        str(row["track_id"]),
-            "track_name":      str(row["track_name"]),
-            "artist_name":     str(row["artist_name"]),
-            "valence":         sf("valence"),
-            "energy":          sf("energy"),
-            "danceability":    sf("danceability"),
-            "acousticness":    sf("acousticness"),
-            "tempo":           sf("tempo"),
+            "track_id":         str(row["track_id"]),
+            "track_name":       str(row["track_name"]),
+            "artist_name":      str(row["artist_name"]),
+            "valence":          sf("valence"),
+            "energy":           sf("energy"),
+            "danceability":     sf("danceability"),
+            "acousticness":     sf("acousticness"),
+            "tempo":            sf("tempo"),
             "instrumentalness": sf("instrumentalness"),
-            "speechiness":     sf("speechiness"),
-            "liveness":        sf("liveness"),
-            "distance":        round(float(distance), 4) if distance is not None else None,
-            "preview_url":     _safe(row.get("preview_url")),
-            "album_image":     _safe(row.get("album_image")),
-            "external_url":    _safe(row.get("external_url")),
-            "popularity":      int(row.get("popularity") or 0),
-            "track_genre":     str(row.get("track_genre") or ""),
+            "speechiness":      sf("speechiness"),
+            "liveness":         sf("liveness"),
+            "distance":         round(float(distance), 4) if distance is not None else None,
+            "preview_url":      _safe(row.get("preview_url")),
+            "album_image":      _safe(row.get("album_image")),
+            "external_url":     _safe(row.get("external_url")),
+            "popularity":       int(row.get("popularity") or 0),
+            "track_genre":      str(row.get("track_genre") or ""),
         }
 
     def _check_fitted(self) -> None:
