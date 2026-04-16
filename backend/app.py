@@ -195,15 +195,32 @@ async def auth_token(spotify_session: str = Cookie(None)):
     return {"access_token": token}
 
 
+_cc_token: dict = {}  # {"token": str, "expires_at": float}
+
+async def _get_client_credentials_token() -> str:
+    """Obtain a Spotify app-level token via Client Credentials flow (no user context needed)."""
+    import time
+    if _cc_token.get("token") and time.time() < _cc_token.get("expires_at", 0):
+        return _cc_token["token"]
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(
+            "https://accounts.spotify.com/api/token",
+            data={"grant_type": "client_credentials"},
+            auth=(SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET),
+            timeout=10,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    import time as _time
+    _cc_token["token"] = data["access_token"]
+    _cc_token["expires_at"] = _time.time() + data.get("expires_in", 3600) - 60
+    return _cc_token["token"]
+
+
 @app.get("/api/spotify/tracks")
-async def spotify_tracks_proxy(ids: str, spotify_session: str = Cookie(None)):
-    """Proxy Spotify GET /v1/tracks through the server to avoid client-side geo-blocks."""
-    if not spotify_session:
-        raise HTTPException(401, "Not authenticated")
-    auth = _spotify_auth()
-    token = await auth.get_valid_token(spotify_session)
-    if not token:
-        raise HTTPException(401, "Session expired")
+async def spotify_tracks_proxy(ids: str):
+    """Proxy Spotify GET /v1/tracks using client credentials (no user token needed for metadata)."""
+    token = await _get_client_credentials_token()
     async with httpx.AsyncClient() as client:
         resp = await client.get(
             "https://api.spotify.com/v1/tracks",
