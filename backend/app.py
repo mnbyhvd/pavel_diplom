@@ -54,12 +54,22 @@ GENRE_COLORS = [
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Ensure schema exists, then load data
+    # Ensure schema exists
     await create_tables()
+    # Enable pg_trgm extension and create trigram indexes for fast partial search
+    from database import async_engine
+    async with async_engine.begin() as conn:
+        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS idx_trgm_track_name "
+            "ON tracks USING gin(track_name gin_trgm_ops)"
+        ))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS idx_trgm_artist_name "
+            "ON tracks USING gin(artist_name gin_trgm_ops)"
+        ))
     data_manager.load()
     yield
-    # Dispose async engine on shutdown
-    from database import async_engine
     await async_engine.dispose()
 
 
@@ -429,59 +439,66 @@ def get_preview_url(track_id: str):
     return {"track_id": track_id, "preview_url": None}
 
 
-# ─── Search (PostgreSQL full-text) ────────────────────────────
+# ─── Search (trigram + multi-signal ranking) ──────────────────
 
 @app.get("/api/search/local")
 async def search_local(
-    q: str         = Query(..., min_length=1),
-    limit: int     = Query(default=30, ge=1, le=100),
+    q:     str = Query(..., min_length=1),
+    limit: int = Query(default=30, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Search tracks using PostgreSQL.
-    Tries full-text search first; falls back to ILIKE if no results.
+    Trigram-based search across track_name and artist_name.
+
+    A single query string is matched against both fields simultaneously.
+    Ranking signals (higher = better match):
+      1. Exact case-insensitive match on either field       (+1.0)
+      2. Starts-with match on either field                  (+0.8)
+      3. Substring ILIKE match on either field              (+0.5)
+      4. pg_trgm word_similarity score for partial words   (0–1.0)
+         — handles "bohemia" → "Bohemian Rhapsody", typos, etc.
+      5. Popularity tiebreaker                             (small weight)
+
+    Candidate filter: track or artist must match ILIKE OR trigram > 0.12.
     """
-    q_clean = q.strip()
+    q_clean = q.strip().lower()
 
-    # Full-text search via tsvector (uses GIN index — very fast)
-    fts_res = await db.execute(
-        text("""
-            SELECT track_id, track_name, artist_name, popularity,
-                   valence, energy, danceability, acousticness, tempo,
-                   instrumentalness, speechiness, liveness,
-                   track_genre, preview_url, album_image, external_url,
-                   ts_rank(
-                       to_tsvector('simple', coalesce(track_name,'') || ' ' || coalesce(artist_name,'')),
-                       plainto_tsquery('simple', :q)
-                   ) AS rank
-              FROM tracks
-             WHERE to_tsvector('simple', coalesce(track_name,'') || ' ' || coalesce(artist_name,''))
-                   @@ plainto_tsquery('simple', :q)
-             ORDER BY rank DESC, popularity DESC NULLS LAST
-             LIMIT :lim
-        """),
-        {"q": q_clean, "lim": limit},
+    sql = """
+        SELECT track_id, track_name, artist_name, popularity,
+               valence, energy, danceability, acousticness, tempo,
+               instrumentalness, speechiness, liveness,
+               track_genre, preview_url, album_image, external_url,
+               (
+                 -- Exact match bonus
+                 CASE WHEN lower(track_name)  = :q THEN 1.0 ELSE 0 END +
+                 CASE WHEN lower(artist_name) = :q THEN 1.0 ELSE 0 END +
+                 -- Prefix match bonus
+                 CASE WHEN lower(track_name)  LIKE :prefix THEN 0.8 ELSE 0 END +
+                 CASE WHEN lower(artist_name) LIKE :prefix THEN 0.8 ELSE 0 END +
+                 -- Substring match bonus
+                 CASE WHEN lower(track_name)  LIKE :pat THEN 0.5 ELSE 0 END +
+                 CASE WHEN lower(artist_name) LIKE :pat THEN 0.5 ELSE 0 END +
+                 -- Trigram word similarity (best of both fields)
+                 GREATEST(
+                     word_similarity(:q, lower(track_name)),
+                     word_similarity(:q, lower(artist_name))
+                 ) +
+                 -- Popularity tiebreaker (normalised to ~0–0.1)
+                 COALESCE(popularity, 0)::float / 1000.0
+               ) AS score
+          FROM tracks
+         WHERE track_name  ILIKE :pat
+            OR artist_name ILIKE :pat
+            OR word_similarity(:q, lower(track_name))  > 0.12
+            OR word_similarity(:q, lower(artist_name)) > 0.12
+         ORDER BY score DESC
+         LIMIT :lim
+    """
+    res = await db.execute(
+        text(sql),
+        {"q": q_clean, "pat": f"%{q_clean}%", "prefix": f"{q_clean}%", "lim": limit},
     )
-    rows = fts_res.fetchall()
-
-    # Fallback: ILIKE prefix search if full-text returns nothing
-    if not rows:
-        like_res = await db.execute(
-            text("""
-                SELECT track_id, track_name, artist_name, popularity,
-                       valence, energy, danceability, acousticness, tempo,
-                       instrumentalness, speechiness, liveness,
-                       track_genre, preview_url, album_image, external_url
-                  FROM tracks
-                 WHERE track_name  ILIKE :pat
-                    OR artist_name ILIKE :pat
-                 ORDER BY popularity DESC NULLS LAST
-                 LIMIT :lim
-            """),
-            {"pat": f"%{q_clean}%", "lim": limit},
-        )
-        rows = like_res.fetchall()
-
+    rows = res.fetchall()
     results = [_row_to_api(r) for r in rows]
     return {"results": results, "total": len(results), "query": q}
 

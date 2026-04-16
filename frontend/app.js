@@ -758,10 +758,14 @@ function initSearch() {
     const q = e.target.value.trim();
     clearTimeout(S.searchTimer);
     if (q.length < 2) {
-      document.getElementById('search-results').innerHTML = '<p class="empty-hint">Начните вводить — поиск в реальном времени</p>';
+      document.getElementById('search-results').innerHTML =
+        '<p class="empty-hint">Начните вводить — поиск в реальном времени</p>';
       return;
     }
     S.searchTimer = setTimeout(() => doSearch(q), 280);
+  });
+  inp.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { clearTimeout(S.searchTimer); doSearch(inp.value.trim()); }
   });
   inp.focus();
   // ⌘K shortcut
@@ -774,12 +778,17 @@ function initSearch() {
 }
 
 async function doSearch(q) {
+  if (!q) return;
   const c = document.getElementById('search-results');
   c.innerHTML = '<div class="spinner"></div>';
   try {
     const d = await api(`/api/search/local?q=${encodeURIComponent(q)}&limit=40`);
-    renderTrackList(c, d.results || []);
-    enrichWithArt(d.results || []);
+    if (!d.results?.length) {
+      c.innerHTML = '<p class="empty-hint">Ничего не найдено. Попробуй другое написание.</p>';
+      return;
+    }
+    renderTrackList(c, d.results);
+    enrichWithArt(d.results);
   } catch (err) {
     c.innerHTML = `<p class="empty-hint">${esc(err.message)}</p>`;
   }
