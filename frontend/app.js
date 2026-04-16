@@ -193,15 +193,18 @@ function initSpotifySDK() {
     S.sdk.player   = player;
     console.log('[SDK] Ready, device_id:', device_id);
     updatePlaybackBadge('Spotify Premium · полный трек');
-    // Transfer playback to this device so Spotify recognises it as active
-    try {
-      const token = await getSpotifyToken();
-      await fetch('https://api.spotify.com/v1/me/player', {
-        method: 'PUT',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ device_ids: [device_id], play: false }),
-      });
-    } catch (_) {}
+    // Transfer playback to this device after a short delay (device registration is async)
+    setTimeout(async () => {
+      try {
+        const token = await getSpotifyToken();
+        const r = await fetch('https://api.spotify.com/v1/me/player', {
+          method: 'PUT',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ device_ids: [device_id], play: false }),
+        });
+        console.log('[SDK] Transfer playback status:', r.status);
+      } catch (_) {}
+    }, 2000);
   });
 
   player.addListener('not_ready', () => { S.sdk.ready = false; });

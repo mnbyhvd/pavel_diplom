@@ -221,6 +221,7 @@ async def _get_client_credentials_token() -> str:
 async def spotify_tracks_proxy(ids: str):
     """Proxy Spotify GET /v1/tracks using client credentials (no user token needed for metadata)."""
     token = await _get_client_credentials_token()
+    logger.info("CC token obtained (first 8 chars): %s", token[:8] if token else "NONE")
     async with httpx.AsyncClient() as client:
         resp = await client.get(
             "https://api.spotify.com/v1/tracks",
@@ -228,7 +229,9 @@ async def spotify_tracks_proxy(ids: str):
             headers={"Authorization": f"Bearer {token}"},
             timeout=10,
         )
+    logger.info("Spotify /v1/tracks status: %s", resp.status_code)
     if not resp.is_success:
+        logger.warning("Spotify /v1/tracks error body: %s", resp.text[:500])
         raise HTTPException(resp.status_code, resp.text)
     return resp.json()
 
