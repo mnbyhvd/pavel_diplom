@@ -187,12 +187,21 @@ function initSpotifySDK() {
     volume: 0.7,
   });
 
-  player.addListener('ready', ({ device_id }) => {
+  player.addListener('ready', async ({ device_id }) => {
     S.sdk.deviceId = device_id;
     S.sdk.ready    = true;
     S.sdk.player   = player;
     console.log('[SDK] Ready, device_id:', device_id);
     updatePlaybackBadge('Spotify Premium · полный трек');
+    // Transfer playback to this device so Spotify recognises it as active
+    try {
+      const token = await getSpotifyToken();
+      await fetch('https://api.spotify.com/v1/me/player', {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ device_ids: [device_id], play: false }),
+      });
+    } catch (_) {}
   });
 
   player.addListener('not_ready', () => { S.sdk.ready = false; });
