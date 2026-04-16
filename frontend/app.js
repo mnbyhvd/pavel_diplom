@@ -270,7 +270,7 @@ async function fetchSpotifyTracks(trackIds) {
     if (!token) return result;
     for (let i = 0; i < trackIds.length; i += 50) {
       const batch = trackIds.slice(i, i + 50).join(',');
-      const resp = await fetch(`https://api.spotify.com/v1/tracks?ids=${batch}`, {
+      const resp = await fetch(`https://api.spotify.com/v1/tracks?ids=${batch}&market=from_token`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!resp.ok) {
